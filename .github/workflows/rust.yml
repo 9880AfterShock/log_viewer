@@ -18,7 +18,7 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - name: Build
-      run: cargo build --verbose --release
+      run: cargo build --release
     - name: Upload binaries to release
       uses: svenstaro/upload-release-action@v2
       with:
@@ -38,7 +38,7 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - name: Build
-      run: cargo build --verbose --release
+      run: cargo build --release
     - name: Upload binaries to release
       uses: svenstaro/upload-release-action@v2
       with:
@@ -57,7 +57,7 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - name: Build
-      run: cargo build --verbose --release
+      run: cargo build --release
     - name: Upload binaries to release
       uses: svenstaro/upload-release-action@v2
       with:
@@ -78,7 +78,7 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - name: Build
-      run: cargo build --verbose --release
+      run: cargo build --release
     - name: Upload binaries to release
       uses: svenstaro/upload-release-action@v2
       with:
@@ -97,7 +97,7 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - name: Build
-      run: cargo build --verbose --release
+      run: cargo build --release
     - name: Upload binaries to release
       uses: svenstaro/upload-release-action@v2
       with:
