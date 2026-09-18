@@ -84,7 +84,7 @@ jobs:
       with:
         repo_token: ${{ secrets.GITHUB_TOKEN }}
         file: target/release/log_viewer
-        asset_name: log_viewer-linux-arm
+        asset_name: log_viewer-macos-arm
         tag: ${{ github.ref }}
         overwrite: true
         body: "Build for macos arm"
@@ -103,7 +103,7 @@ jobs:
       with:
         repo_token: ${{ secrets.GITHUB_TOKEN }}
         file: target/release/log_viewer
-        asset_name: log_viewer-linux-arm
+        asset_name: log_viewer-macos-x64
         tag: ${{ github.ref }}
         overwrite: true
         body: "Build for macos x86_64"
