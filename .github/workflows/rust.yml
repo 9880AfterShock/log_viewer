@@ -1,23 +1,48 @@
 name: Rust
 
 on:
-  push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
+  release:
+    types:
+      - published
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build-linux:
+  build-linux-x86:
 
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
     - uses: actions/checkout@v4
     - name: Build
-      run: cargo build --verbose
+      run: cargo build --verbose --release
+    - name: Upload a Build Artifact
+      uses: actions/upload-artifact@v7.0.1
+      with:
+        name: log_viewer-linux-x86
+        path: target/release/log_viewer
+        error: Failed to produce artifact
+        if-no-files-found: error    
+        archive: false
+      
+  build-linux-arm:
+
+    runs-on: ubuntu-24.04-arm
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Build
+      run: cargo build --verbose --release
+    - name: Upload a Build Artifact
+      uses: actions/upload-artifact@v7.0.1
+      with:
+        name: log_viewer-linux-arm
+        path: target/release/log_viewer
+        error: Failed to produce artifact
+        if-no-files-found: error    
+        archive: false
+  
   build-windows:
 
     runs-on: windows-latest
@@ -25,7 +50,17 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - name: Build
-      run: cargo build --verbose
+      run: cargo build --verbose --release
+    - name: Upload a Build Artifact
+      uses: actions/upload-artifact@v7.0.1
+      with:
+        name: log_viewer-windows
+        path: target/release/log_viewer
+        error: Failed to produce artifact
+        if-no-files-found: error    
+        archive: false
+      
+      
   
   build-macos-arm:
   
@@ -34,7 +69,15 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - name: Build
-      run: cargo build --verbose
+      run: cargo build --verbose --release
+    - name: Upload a Build Artifact
+      uses: actions/upload-artifact@v7.0.1
+      with:
+        name: log_viewer-macos-arm
+        path: target/release/log_viewer
+        error: Failed to produce artifact
+        if-no-files-found: error    
+        archive: false
       
   build-macos-x86:
   
@@ -43,6 +86,14 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - name: Build
-      run: cargo build --verbose
+      run: cargo build --verbose --release
+    - name: Upload a Build Artifact
+      uses: actions/upload-artifact@v7.0.1
+      with:
+        name: log_viewer-macos-x86
+        path: target/release/log_viewer
+        error: Failed to produce artifact
+        if-no-files-found: error    
+        archive: false
 
     
