@@ -10,6 +10,8 @@ env:
 
 jobs:
   build-linux-x64:
+    permissions:
+      contents: write
 
     runs-on: ubuntu-24.04
 
@@ -28,6 +30,8 @@ jobs:
         body: "Build for linux on x86_64"
       
   build-linux-arm:
+    permissions:
+      contents: write
 
     runs-on: ubuntu-24.04-arm
 
@@ -46,7 +50,8 @@ jobs:
         body: "Build for linux on arm"
   
   build-windows:
-
+    permissions:
+      contents: write
     runs-on: windows-latest
 
     steps:
@@ -66,7 +71,8 @@ jobs:
       
   
   build-macos-arm:
-  
+    permissions:
+      contents: write
     runs-on: macos-latest
 
     steps:
@@ -84,7 +90,8 @@ jobs:
         body: "Build for macos arm"
       
   build-macos-x64:
-  
+    permissions:
+      contents: write
     runs-on: macos-15-intel
 
     steps:
