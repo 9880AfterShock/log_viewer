@@ -8,7 +8,7 @@ use std::{
     thread::{self, JoinHandle},
 };
 
-use egui::{Button, Color32, ProgressBar, scroll_area};
+use egui::{Button, Color32, Pos2, ProgressBar, Stroke, scroll_area};
 use egui_plot::{HoverPosition, Line, Plot, PlotPoints, VLine};
 use elegance::Theme;
 use rfd::FileDialog;
@@ -19,6 +19,120 @@ use crate::log_api::{LogGrabber, read_log_with_reporting};
 pub enum OnDownloadAction {
     Load,
     Save,
+}
+
+#[derive(Clone, Debug)]
+enum ObjectType {
+    Robot,
+    AprilTag,
+    Marker,
+}
+
+impl TryFrom<&str> for ObjectType {
+    type Error = String;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        match value {
+            "ROBOT" => Ok(Self::Robot),
+            "APRIL_TAG" => Ok(Self::AprilTag),
+            "MARKER" => Ok(Self::Marker),
+            _ => Err("failed to find a valid object type".to_string()),
+        }
+    }
+}
+
+impl TryFrom<String> for ObjectType {
+    type Error = String;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        value.as_str().try_into()
+    }
+}
+
+#[derive(Clone, Debug)]
+struct FieldObject {
+    name: String,
+    object_type: ObjectType,
+    color: i32,
+    xpos: f64,
+    ypos: f64,
+    rot: f64,
+}
+
+impl TryFrom<&str> for FieldObject {
+    type Error = String;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        let mut split = value.split(",");
+        let name = split
+            .next()
+            .map_or(Err("no next token".to_string()), |v| Ok(v))?
+            .to_string();
+        let object_type = ObjectType::try_from(
+            split
+                .next()
+                .map_or(Err("no next token".to_string()), |v| Ok(v))?,
+        )?;
+        let color = split
+            .next()
+            .map_or(Err("no next token".to_string()), |v| Ok(v))?
+            .parse::<i32>()
+            .map_err(|v| v.to_string())?;
+        let xpos = split
+            .next()
+            .map_or(Err("no next token".to_string()), |v| Ok(v))?
+            .parse::<f64>()
+            .map_err(|v| v.to_string())?;
+        let ypos = split
+            .next()
+            .map_or(Err("no next token".to_string()), |v| Ok(v))?
+            .parse::<f64>()
+            .map_err(|v| v.to_string())?;
+        let rot = split
+            .next()
+            .map_or(Err("no next token".to_string()), |v| Ok(v))?
+            .parse::<f64>()
+            .map_err(|v| v.to_string())?;
+        Ok(Self {
+            name,
+            object_type,
+            color,
+            xpos,
+            ypos,
+            rot,
+        })
+    }
+}
+
+impl TryFrom<String> for FieldObject {
+    type Error = String;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        value.as_str().try_into()
+    }
+}
+
+#[derive(Clone, Debug)]
+struct FieldState {
+    field_objects: Vec<FieldObject>,
+}
+
+impl From<&str> for FieldState {
+    fn from(value: &str) -> Self {
+        Self {
+            field_objects: value
+                .split("|")
+                .map(|v| v.try_into())
+                .filter_map(|v| v.ok())
+                .collect(),
+        }
+    }
+}
+
+impl From<String> for FieldState {
+    fn from(value: String) -> Self {
+        value.as_str().into()
+    }
 }
 
 #[derive(Clone)]
@@ -51,7 +165,7 @@ pub enum LogEntry {
     FieldState {
         time: f64,
         name: String,
-        data: String,
+        data: FieldState,
     },
     Unkown {
         time: f64,
@@ -69,7 +183,7 @@ impl ToString for LogEntry {
             LogEntry::String { time, name, data } => format!("[{time}] {name}: {data}"),
             LogEntry::Color { time, name, data } => format!("[{time}] {name}: {data}"),
             LogEntry::Bool { time, name, data } => format!("[{time}] {name}: {data}"),
-            LogEntry::FieldState { time, name, data } => format!("[{time}] {name}: {data}"),
+            LogEntry::FieldState { time, name, data } => format!("[{time}] {name}: {data:?}"),
             LogEntry::Unkown {
                 time,
                 data_type,
@@ -104,6 +218,7 @@ enum Tab {
     LogLoader,
     EventTimeline,
     GraphViewer,
+    FieldViewer,
 }
 
 pub struct LogViewer {
@@ -152,6 +267,7 @@ impl eframe::App for LogViewer {
                 let mut load_logs = Button::new("Load Logs");
                 let mut event_timeline = Button::new("Event Timeline");
                 let mut graph_viewer = Button::new("Graph Viewer");
+                let mut field_viewer = Button::new("Field Viewer");
                 load_logs = if Tab::LogLoader == self.tab {
                     load_logs.selected(true)
                 } else {
@@ -167,6 +283,11 @@ impl eframe::App for LogViewer {
                 } else {
                     graph_viewer
                 };
+                field_viewer = if Tab::FieldViewer == self.tab {
+                    field_viewer.selected(true)
+                } else {
+                    field_viewer
+                };
 
                 if ui.add(load_logs).clicked() {
                     self.tab = Tab::LogLoader;
@@ -179,12 +300,17 @@ impl eframe::App for LogViewer {
                 if ui.add(graph_viewer).clicked() {
                     self.tab = Tab::GraphViewer;
                 }
+
+                if ui.add(field_viewer).clicked() {
+                    self.tab = Tab::FieldViewer;
+                }
             });
         });
         egui::CentralPanel::default().show(ui, |ui| match self.tab {
             Tab::LogLoader => self.log_picker(ui, frame),
             Tab::EventTimeline => self.event_viewer(ui, frame),
             Tab::GraphViewer => self.graph_viewer(ui, frame),
+            Tab::FieldViewer => self.field_viewer(ui, frame),
         });
     }
 }
@@ -257,7 +383,7 @@ impl LogViewer {
                     "FieldState" => LogEntry::FieldState {
                         time,
                         name: name.to_string(),
-                        data: data.to_string(),
+                        data: data.into(),
                     },
                     _ => LogEntry::Unkown {
                         time,
@@ -280,6 +406,17 @@ impl LogViewer {
             }
         }
         self.loaded_log = Some((log_vec, sorted_entries));
+    }
+
+    fn field_viewer(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
+        egui::CentralPanel::default().show(ui, |ui| {
+            let next = ui.next_widget_position();
+            let size = ui.available_size();
+            ui.painter().line_segment(
+                [next, next+size],
+                Stroke::new(5.0, Color32::RED),
+            )
+        });
     }
 
     fn graph_viewer(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
