@@ -9,11 +9,13 @@ use std::{
 };
 
 use egui::{Button, Color32, Pos2, ProgressBar, Stroke, scroll_area};
+use egui_async::{Bind, egui::AsyncButton};
 use egui_plot::{HoverPosition, Line, Plot, PlotPoints, VLine};
 use elegance::Theme;
-use rfd::FileDialog;
+use rfd::AsyncFileDialog;
+use tokio::sync::RwLock;
 
-use crate::log_api::{LogGrabber, read_log_with_reporting};
+use crate::log_api::{FileSpecifier, LogGrabber};
 
 #[derive(PartialEq, Eq)]
 pub enum OnDownloadAction {
@@ -223,45 +225,40 @@ enum Tab {
 
 pub struct LogViewer {
     loaded_log: Option<(Vec<LogEntry>, HashMap<(String, String), Vec<LogEntry>>)>,
-    log_grabber: LogGrabber,
-    download_task: Option<(
-        JoinHandle<(std::io::Result<String>, String)>,
-        u64,
-        OnDownloadAction,
-    )>,
-    download_progress: Arc<AtomicU64>,
+    log_grabber: Arc<RwLock<LogGrabber>>,
+    log_list: Option<Vec<FileSpecifier>>,
+    download_bind: Bind<String, ()>,
+    save_bind: Bind<(String, String), ()>,
+    list_bind: Bind<Vec<FileSpecifier>, ()>,
+    save_picker_bind: Bind<(), ()>,
+    delete_bind: Bind<bool, ()>,
+    upload_file_bind: Bind<String,()>,
     enabled_graphs: HashMap<String, bool>,
     tab: Tab,
     graph_picker_expanded: bool,
 }
 
 impl eframe::App for LogViewer {
+
+    fn logic(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        if let Some(data) = self.upload_file_bind.take_ok() {
+            self.load_log(data);
+        }
+        if let Some(data) = self.download_bind.take_ok() {
+            self.load_log(data);
+        }
+        if let Some((_, _)) = self.save_bind.take_ok() {}
+        if let Some(logs) = self.list_bind.take_ok() {
+            self.log_list = Some(logs);
+        }
+        if let Some(succ) = self.delete_bind.take_ok() && succ {
+            self.log_list = None;
+        }
+        ctx.plugin_or_default::<egui_async::EguiAsyncPlugin>();
+    }
+    
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         Theme::charcoal().install(ui.ctx());
-        if let Some((handle, size, _)) = self.download_task.as_ref() {
-            egui::Panel::bottom("Progress Bar").show(ui, |ui| {
-                let current_download_progress = self
-                    .download_progress
-                    .load(std::sync::atomic::Ordering::SeqCst);
-                ui.add(
-                    ProgressBar::new(
-                        (current_download_progress as f64 / *size as f64).clamp(0.0, 1.0) as f32,
-                    )
-                    .text(format!("{current_download_progress} / {size}"))
-                    .animate(true),
-                );
-            });
-            if handle.is_finished() {
-                let (handle, _, operation) = self.download_task.take().expect("????");
-                let (data, name) = handle.join().expect("download task failed");
-                let data = data.expect("failed to parse data");
-                self.log_grabber.cache_log(&name, data.clone());
-                match operation {
-                    OnDownloadAction::Load => self.load_log(data),
-                    OnDownloadAction::Save => Self::save_log(name, data),
-                }
-            }
-        }
         egui::Panel::top("Tab Bar").show(ui, |ui| {
             ui.horizontal(|ui| {
                 let mut load_logs = Button::new("Load Logs");
@@ -322,26 +319,39 @@ fn get_doc_path() -> PathBuf {
 }
 
 impl LogViewer {
-    pub fn save_log(file_name: String, contents: String) {
-        let path = get_doc_path().join(file_name);
-        if fs::exists(&path).unwrap_or(false) {
-            fs::remove_file(&path).expect("failed to delete file")
+    pub async fn save_log(file_name: String, contents: String) {
+        let mut picker = AsyncFileDialog::new().set_title("Save Log").add_filter("Log", &["log"]).set_file_name(file_name);
+        #[cfg(not(any(target_arch = "wasm64",target_arch = "wasm32")))] 
+        {
+            picker = picker.set_directory(get_doc_path());
         }
-        if let Ok(mut file) = File::create_new(&path) {
-            file.write_all(contents.as_bytes())
-                .expect("failed to write");
+        if let Some(file) = picker.save_file().await {
+            file.write(contents.as_bytes()).await.expect("failed to write");
         }
+        // let path = get_doc_path().join(file_name);
+        // if fs::exists(&path).unwrap_or(false) {
+        //     fs::remove_file(&path).expect("failed to delete file")
+        // }
+        // if let Ok(mut file) = File::create_new(&path) {
+        //     file.write_all(contents.as_bytes())
+        //         .expect("failed to write");
+        // }
     }
 
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         Self {
             loaded_log: None,
-            log_grabber: LogGrabber::new(),
-            download_task: None,
-            download_progress: Arc::new(AtomicU64::new(0)),
+            log_grabber: Arc::new(RwLock::new(LogGrabber::new())),
             tab: Tab::LogLoader,
             enabled_graphs: HashMap::new(),
             graph_picker_expanded: true,
+            upload_file_bind: Bind::new(true),
+            download_bind: Bind::new(true),
+            save_bind: Bind::new(true),
+            list_bind: Bind::new(true),
+            delete_bind: Bind::new(true),
+            log_list: None,
+            save_picker_bind: Bind::new(true),
         }
     }
 
@@ -435,8 +445,15 @@ impl LogViewer {
                                 .expect("???")
                                 .iter()
                                 .map(|v| {
+                                    #[cfg(not(any(target_arch = "wasm64",target_arch = "wasm32")))]
                                     if let LogEntry::Number { time, name, data } = v {
                                         [*time, *data]
+                                    } else {
+                                        [v.get_time(), 0.0]
+                                    }
+                                    #[cfg(any(target_arch = "wasm64",target_arch = "wasm32"))]
+                                    if let LogEntry::Number { time, name, data } = v {
+                                        [time.clone(), data.clone()]
                                     } else {
                                         [v.get_time(), 0.0]
                                     }
@@ -527,64 +544,51 @@ impl LogViewer {
     }
 
     fn log_picker(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
-        if let Ok(logs) = self.log_grabber.list_logs() {
+        if let Some(logs) = &self.log_list {
             for log in logs {
                 ui.horizontal(|ui| {
                     ui.label(&log.name);
                     let load_log_name = log.name.clone();
                     let save_log_name = log.name.clone();
-                    if ui.button("Load").clicked() {
-                        let progress = self.download_progress.clone();
-                        let ctx = ui.ctx().clone();
-                        self.download_progress
-                            .store(0, std::sync::atomic::Ordering::SeqCst);
-                        self.download_task = Some((
-                            thread::spawn(|| {
-                                (
-                                    read_log_with_reporting(&load_log_name, progress, ctx),
-                                    load_log_name,
-                                )
-                            }),
-                            log.size,
-                            OnDownloadAction::Load,
-                        ))
-                    }
-                    if ui.button("Save").clicked() {
-                        let progress = self.download_progress.clone();
-                        let ctx = ui.ctx().clone();
-                        self.download_progress
-                            .store(0, std::sync::atomic::Ordering::SeqCst);
-                        self.download_task = Some((
-                            thread::spawn(|| {
-                                (
-                                    read_log_with_reporting(&save_log_name, progress, ctx),
-                                    save_log_name,
-                                )
-                            }),
-                            log.size,
-                            OnDownloadAction::Save,
-                        ))
-                    }
-                    if ui.button("Delete").clicked() {
-                        self.log_grabber
-                            .delete_log(log.name)
-                            .expect("failed to delete");
-                        self.log_grabber.clear_caches();
-                    }
+                    let delete_log_name = log.name.clone();
+                    let log_grabber_load = self.log_grabber.clone();
+                    let log_grabber_save = self.log_grabber.clone();
+                    let log_grabber_delete = self.log_grabber.clone();
+                    AsyncButton::new(&mut self.download_bind,"Load").show(ui, async move || {
+                        log_grabber_load.read().await.read_log(load_log_name).await.map_err(|_| ())
+                    });
+                    AsyncButton::new(&mut self.save_bind,"Save").show(ui, async move || {
+                        if let Ok((name,data)) = log_grabber_save.read().await.read_log(&save_log_name).await.map_err(|_| ()).map(|v| (save_log_name,v)) {
+                            Self::save_log(name.clone(), data.clone()).await;
+                            Ok((name,data))
+                        } else {
+                            Err(())
+                        }
+                    });
+                    AsyncButton::new(&mut self.delete_bind,"Delete").show(ui, async move || {
+                        log_grabber_delete.read().await.delete_log(delete_log_name).await.map_err(|_| ())
+                    });
                 });
             }
+        } else {
+            let log_grabber_list = self.log_grabber.clone();
+            self.list_bind.request(async move {
+                log_grabber_list.read().await.list_logs().await.map_err(|_| ())
+            });
         }
         egui::Panel::bottom("Load File Panel").show(ui, |ui| {
-            let picker = FileDialog::new()
-                .add_filter("logs", &["log"])
-                .set_directory(get_doc_path());
-            if ui.button("Load From File").clicked() {
-                if let Some(path) = picker.pick_file() {
-                    if let Ok(data) = fs::read_to_string(path) {
-                        self.load_log(data);
-                    }
-                }
+            let mut picker = AsyncFileDialog::new().set_title("Load Log").add_filter("Log", &["log"]);
+            #[cfg(not(any(target_arch = "wasm64",target_arch = "wasm32")))] 
+            {
+                picker = picker.set_directory(get_doc_path());
             }
+            AsyncButton::new(&mut self.upload_file_bind, "Load From File").show(ui,async move|| {
+                if let Some(handle) = picker.pick_file().await && let Ok(result) = String::from_utf8(handle.read().await) {
+                    Ok(result)
+                } else {
+                    Err(())
+                }
+            });
         });
     }
 }
