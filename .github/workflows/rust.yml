@@ -1,0 +1,111 @@
+name: Rust
+
+on:
+  release:
+    types:
+      - published
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-linux-x64:
+    permissions:
+      contents: write
+
+    runs-on: ubuntu-24.04
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Build
+      run: cargo build --release
+    - name: Upload binaries to release
+      uses: svenstaro/upload-release-action@v2
+      with:
+        repo_token: ${{ secrets.GITHUB_TOKEN }}
+        file: target/release/log_viewer
+        asset_name: log_viewer-linux-x64
+        tag: ${{ github.ref }}
+        overwrite: true
+        body: "Build for linux on x86_64"
+      
+  build-linux-arm:
+    permissions:
+      contents: write
+
+    runs-on: ubuntu-24.04-arm
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Build
+      run: cargo build --release
+    - name: Upload binaries to release
+      uses: svenstaro/upload-release-action@v2
+      with:
+        repo_token: ${{ secrets.GITHUB_TOKEN }}
+        file: target/release/log_viewer
+        asset_name: log_viewer-linux-arm
+        tag: ${{ github.ref }}
+        overwrite: true
+        body: "Build for linux on arm"
+  
+  build-windows:
+    permissions:
+      contents: write
+    runs-on: windows-latest
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Build
+      run: cargo build --release
+    - name: Upload binaries to release
+      uses: svenstaro/upload-release-action@v2
+      with:
+        repo_token: ${{ secrets.GITHUB_TOKEN }}
+        file: target\release\log_viewer.exe
+        asset_name: log_viewer-windows.exe
+        tag: ${{ github.ref }}
+        overwrite: true
+        body: "Build for windows"
+      
+      
+  
+  build-macos-arm:
+    permissions:
+      contents: write
+    runs-on: macos-latest
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Build
+      run: cargo build --release
+    - name: Upload binaries to release
+      uses: svenstaro/upload-release-action@v2
+      with:
+        repo_token: ${{ secrets.GITHUB_TOKEN }}
+        file: target/release/log_viewer
+        asset_name: log_viewer-macos-arm
+        tag: ${{ github.ref }}
+        overwrite: true
+        body: "Build for macos arm"
+      
+  build-macos-x64:
+    permissions:
+      contents: write
+    runs-on: macos-15-intel
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Build
+      run: cargo build --release
+    - name: Upload binaries to release
+      uses: svenstaro/upload-release-action@v2
+      with:
+        repo_token: ${{ secrets.GITHUB_TOKEN }}
+        file: target/release/log_viewer
+        asset_name: log_viewer-macos-x64
+        tag: ${{ github.ref }}
+        overwrite: true
+        body: "Build for macos x86_64"
+
+    
